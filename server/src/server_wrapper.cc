@@ -25,7 +25,9 @@
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "triton/developer_tools/server_wrapper.h"
+
 #include <stdlib.h>
+
 #include <iostream>
 #include <mutex>
 #include <sstream>
@@ -403,6 +405,12 @@ class InternalServer : public TritonServer {
   std::future<std::unique_ptr<InferResult>> AsyncInfer(
       InferRequest& infer_request) override;
 
+  void AsyncInferWithCallback(
+      InferRequest& infer_request,
+      const std::function<void(std::unique_ptr<InferResult>)>& callback)
+      override;
+  // const std::function<void(void)>& callback) override;
+
  private:
   void StartRepoPollThread();
   void StopRepoPollThread();
@@ -629,6 +637,8 @@ void
 InternalServer::InferRequestComplete(
     TRITONSERVER_InferenceRequest* request, const uint32_t flags, void* userp)
 {
+  std::cout << "InferRequestComplete: Thread: " << std::this_thread::get_id()
+            << std::endl;
   if (request != nullptr) {
     LOG_IF_ERROR(
         TRITONSERVER_InferenceRequestDelete(request),
@@ -640,7 +650,14 @@ void
 InternalServer::InferResponseComplete(
     TRITONSERVER_InferenceResponse* response, const uint32_t flags, void* userp)
 {
+  std::cout << "InferResponseComplete: Thread: " << std::this_thread::get_id()
+            << std::endl;
+
   auto p = reinterpret_cast<InferRequest*>(userp);
+  std::cout << "InferResponseComplete: Allocator. "
+            << p->infer_options_->custom_allocator_.operator bool()
+            << std::endl;
+
   // The allocation info of output tensor, which will be used to finalize
   // the reponse and stored in the ouput 'Tensor' object so that When calling
   // the destructor of an output tensor, it will know how to clean the buffer
@@ -649,15 +666,25 @@ InternalServer::InferResponseComplete(
       p->infer_options_->custom_allocator_, p->tensor_alloc_map_);
   bool is_decoupled = p->is_decoupled_;
 
+
   if (response != nullptr) {
     std::unique_ptr<InternalResult> result = std::make_unique<InternalResult>();
     result->FinalizeResponse(response, alloc_info);
+    std::cout << "InferResponseComplete:" << result->DebugString() << std::endl;
+
     std::unique_ptr<InferResult> infer_result = std::move(result);
 
     if (!is_decoupled) {
       infer_result->next_result_future_.reset();
-      p->prev_promise_->set_value(std::move(infer_result));
-      p->prev_promise_.reset();
+      if (p->callback_) {
+        std::cout << "InferResponseComplete-Callback:"
+                  << infer_result->DebugString() << std::endl;
+        // p->callback_();
+        p->callback_(std::move(infer_result));
+      } else {
+        p->prev_promise_->set_value(std::move(infer_result));
+        p->prev_promise_.reset();
+      }
     } else {
       if ((flags & TRITONSERVER_RESPONSE_COMPLETE_FINAL) == 0) {
         // Not the last reponse. Need to store the promise associated with the
@@ -927,6 +954,7 @@ Tensor::~Tensor()
                   << std::endl;
       } else {
         try {
+          printf("Tensor: Deallocating via custom allocator\n");
           custom_allocator_->ReleaseFn()(
               reinterpret_cast<void*>(buffer_), byte_size_, memory_type_,
               memory_type_id_);
@@ -1617,6 +1645,7 @@ InternalServer::AsyncInfer(InferRequest& infer_request)
     infer_request.is_decoupled_ =
         ((txn_flags & TRITONSERVER_TXN_DECOUPLED) != 0);
 
+    printf("AsyncInfer\n");
     AsyncInferHelper(&irequest, infer_request);
 
     TRITONSERVER_InferenceTrace* triton_trace = nullptr;
@@ -1678,6 +1707,86 @@ InternalServer::AsyncInfer(InferRequest& infer_request)
   return result_future;
 }
 
+
+void
+InternalServer::AsyncInferWithCallback(
+    InferRequest& infer_request,
+    const std::function<void(std::unique_ptr<InferResult>)>& callback)
+// const std::function<void(void)>& callback)
+{
+  // The inference request object for sending internal requests.
+  TRITONSERVER_InferenceRequest* irequest = nullptr;
+  try {
+    uint32_t txn_flags;
+    THROW_IF_TRITON_ERR(TRITONSERVER_ServerModelTransactionProperties(
+        server_.get(), infer_request.infer_options_->model_name_.c_str(),
+        infer_request.infer_options_->model_version_, &txn_flags,
+        nullptr /* voidp */));
+    infer_request.is_decoupled_ =
+        ((txn_flags & TRITONSERVER_TXN_DECOUPLED) != 0);
+
+    printf("AsyncInferWithCallback\n");
+    AsyncInferHelper(&irequest, infer_request);
+
+    TRITONSERVER_InferenceTrace* triton_trace = nullptr;
+    if (trace_manager_) {
+      // Update trace setting for specified model if needed.
+      if (infer_request.infer_options_->trace_) {
+        TraceManager::TraceSetting new_setting(
+            ToTritonTraceLevel(infer_request.infer_options_->trace_->level_),
+            infer_request.infer_options_->trace_->rate_,
+            infer_request.infer_options_->trace_->count_,
+            infer_request.infer_options_->trace_->log_frequency_,
+            std::make_shared<TraceManager::TraceFile>(
+                infer_request.infer_options_->trace_->file_));
+        trace_manager_->UpdateTraceSetting(
+            infer_request.infer_options_->model_name_, new_setting);
+      }
+      infer_request.trace_ = std::move(trace_manager_->SampleTrace(
+          infer_request.infer_options_->model_name_));
+      if (infer_request.trace_ != nullptr) {
+        triton_trace = infer_request.trace_->trace_;
+      }
+    } else if (infer_request.infer_options_->trace_) {
+      LOG_MESSAGE(
+          TRITONSERVER_LOG_ERROR,
+          (std::string("error when updating trace setting for model '") +
+           infer_request.infer_options_->model_name_ +
+           "': tracing is not enabled.")
+              .c_str());
+    }
+
+    {
+      // auto p = new std::promise<std::unique_ptr<InferResult>>();
+      // auto result_future = p->get_future();
+      infer_request.prev_promise_.reset(nullptr);
+      infer_request.callback_ = std::move(callback);
+
+      if (infer_request.infer_options_->custom_allocator_ == nullptr) {
+        THROW_IF_TRITON_ERR(TRITONSERVER_InferenceRequestSetResponseCallback(
+            irequest, allocator_, reinterpret_cast<void*>(&infer_request),
+            InternalServer::InferResponseComplete,
+            reinterpret_cast<void*>(&infer_request)));
+      } else {
+        THROW_IF_TRITON_ERR(TRITONSERVER_InferenceRequestSetResponseCallback(
+            irequest, InternalRequest::custom_triton_allocator_,
+            nullptr /* response_allocator_userp */,
+            InternalServer::InferResponseComplete,
+            reinterpret_cast<void*>(&infer_request)));
+      }
+      THROW_IF_TRITON_ERR(
+          TRITONSERVER_ServerInferAsync(server_.get(), irequest, triton_trace));
+    }
+  }
+  catch (const TritonException& ex) {
+    LOG_IF_ERROR(
+        TRITONSERVER_InferenceRequestDelete(irequest),
+        "Failed to delete inference request.");
+    throw TritonException(std::string("Error - AsyncInfer: ") + ex.what());
+  }
+}
+
+
 std::unique_ptr<InferRequest>
 InferRequest::Create(const InferOptions& options)
 {
@@ -1697,6 +1806,7 @@ InferRequest::~InferRequest() {}
 
 InternalRequest::InternalRequest(const InferOptions& options) : InferRequest()
 {
+  std::cout << "InternalRequest-Constructor" << std::endl;
   infer_options_.reset(new InferOptions(
       options.model_name_, options.model_version_, options.request_id_,
       options.correlation_id_, options.correlation_id_str_,
@@ -1706,6 +1816,9 @@ InternalRequest::InternalRequest(const InferOptions& options) : InferRequest()
   // Store custom allocator as a static variable as it's needed in global
   // functions.
   custom_allocator_ = options.custom_allocator_;
+  std::cout << "InternalRequest-Constructor: Allocator: "
+            << custom_allocator_.operator bool() << std::endl;
+
   custom_triton_allocator_ = nullptr;
   // Initialize custom allocator if it's set.
   if (options.custom_allocator_ != nullptr) {
@@ -1719,7 +1832,10 @@ InternalRequest::InternalRequest(const InferOptions& options) : InferRequest()
 
 InternalRequest::~InternalRequest()
 {
+  std::cout << "InternalRequest-Destructor" << std::endl;
   if (custom_triton_allocator_ != nullptr) {
+    std::cout << "InternalRequest-Destructor: Allocator"
+              << custom_triton_allocator_ << std::endl;
     LOG_IF_ERROR(
         TRITONSERVER_ResponseAllocatorDelete(custom_triton_allocator_),
         "Failed to delete allocator.");
@@ -1782,10 +1898,14 @@ InferResult::InferResult()
 
 InferResult::~InferResult() {}
 
-InternalResult::InternalResult() : InferResult() {}
+InternalResult::InternalResult() : InferResult()
+{
+  std::cout << "InternalResult-Constructor" << std::endl;
+}
 
 InternalResult::~InternalResult()
 {
+  std::cout << "InternalResult-Destructor" << std::endl;
   if (completed_response_ != nullptr) {
     LOG_IF_ERROR(
         TRITONSERVER_InferenceResponseDelete(completed_response_),

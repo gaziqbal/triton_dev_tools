@@ -134,3 +134,40 @@ install(
   TARGETS square_async_infer
   RUNTIME DESTINATION bin
 )
+
+
+
+#
+# gaz_test
+#
+add_executable(
+  gaz_test
+  gaz_test.cc
+)
+
+set_target_properties(
+  gaz_test
+  PROPERTIES
+    SKIP_BUILD_RPATH TRUE
+    BUILD_WITH_INSTALL_RPATH TRUE
+    INSTALL_RPATH_USE_LINK_PATH FALSE
+    INSTALL_RPATH ""
+)
+
+target_include_directories(
+  gaz_test
+  PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/../include
+)
+
+target_link_libraries(
+  gaz_test
+  PRIVATE
+    triton-developer_tools-server
+    triton-core-serverstub
+)
+
+install(
+  TARGETS gaz_test
+  RUNTIME DESTINATION bin
+)

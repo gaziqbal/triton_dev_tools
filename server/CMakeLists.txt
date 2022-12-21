@@ -225,3 +225,5 @@ endif()
 if(TRITON_ENABLE_EXAMPLES)
   add_subdirectory(examples)
 endif() # TRITON_ENABLE_EXAMPLES
+
+add_subdirectory(bindings/python)

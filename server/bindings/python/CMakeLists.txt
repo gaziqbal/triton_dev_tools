@@ -7,12 +7,12 @@ add_subdirectory(extern/pybind11)
 # gaz_test
 #
 pybind11_add_module(
-  tritonpybind
+  triton
   src/tritonpybind.cc
 )
 
 set_target_properties(
-  tritonpybind
+  triton
   PROPERTIES
     SKIP_BUILD_RPATH TRUE
     BUILD_WITH_INSTALL_RPATH TRUE
@@ -21,19 +21,19 @@ set_target_properties(
 )
 
 target_include_directories(
-  tritonpybind
+  triton
   PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/../../include
 )
 
 target_link_libraries(
-  tritonpybind
+  triton
   PRIVATE
     triton-developer_tools-server
     triton-core-serverstub
 )
 
 install(
-  TARGETS tritonpybind
+  TARGETS triton
   LIBRARY DESTINATION lib
 )

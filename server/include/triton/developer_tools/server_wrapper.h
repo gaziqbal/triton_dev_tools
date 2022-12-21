@@ -501,7 +501,6 @@ class TritonServer {
 
   virtual void AsyncInferWithCallback(
       InferRequest& infer_request,
-      // const std::function<void(void)>& callback) = 0;
       const std::function<void(std::unique_ptr<InferResult>)>& callback) = 0;
 
 
@@ -762,7 +761,6 @@ class InferRequest {
   std::unique_ptr<std::promise<std::unique_ptr<InferResult>>> prev_promise_;
 
   std::function<void(std::unique_ptr<InferResult>)> callback_;
-  // std::function<void(void)> callback_;
 };
 
 //==============================================================================

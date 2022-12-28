@@ -34,6 +34,7 @@
 #include <string>
 #include <unordered_map>
 #include <vector>
+
 #include "../src/infer_requested_output.h"
 #include "../src/tracer.h"
 #include "common.h"
@@ -498,6 +499,11 @@ class TritonServer {
   virtual std::future<std::unique_ptr<InferResult>> AsyncInfer(
       InferRequest& infer_request) = 0;
 
+  virtual void AsyncInferWithCallback(
+      InferRequest& infer_request,
+      const std::function<void(std::unique_ptr<InferResult>)>& callback) = 0;
+
+
   /// Is the server live?
   /// \return Returns true if server is live, false otherwise.
   bool IsServerLive();
@@ -750,8 +756,11 @@ class InferRequest {
   // 'InferRequest' should be long enough until all the responses are returned
   // and retrieved.
   bool is_decoupled_;
+
   // The promise object used for setting value to the result future.
   std::unique_ptr<std::promise<std::unique_ptr<InferResult>>> prev_promise_;
+
+  std::function<void(std::unique_ptr<InferResult>)> callback_;
 };
 
 //==============================================================================

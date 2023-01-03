@@ -35,6 +35,7 @@ option(TRITON_ENABLE_GPU "Enable GPU support in backend utilities" ON)
 option(TRITON_ENABLE_STATS "Include statistics collections in backend utilities" ON)
 option(TRITON_BUILD_TEST "Include unit test for the Server Wrapper" ON)
 option(TRITON_ENABLE_EXAMPLES "Include examples in build" ON)
+option(TRITON_ENABLE_PYTHON_BINDINGS "Build Python bindings" ON)
 
 set(TRITON_COMMON_REPO_TAG "main" CACHE STRING "Tag for triton-inference-server/common repo")
 set(TRITON_CORE_REPO_TAG "main" CACHE STRING "Tag for triton-inference-server/core repo")
@@ -226,4 +227,6 @@ if(TRITON_ENABLE_EXAMPLES)
   add_subdirectory(examples)
 endif() # TRITON_ENABLE_EXAMPLES
 
-add_subdirectory(bindings/python)
+if (TRITON_ENABLE_PYTHON_BINDINGS)
+  add_subdirectory(bindings/python)
+endif() # TRITON_ENABLE_EXAMPLES  

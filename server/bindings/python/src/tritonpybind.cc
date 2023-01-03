@@ -1,24 +1,23 @@
-// #include <pybind11/functional.h>
-#include <pybind11/numpy.h>
-#include <pybind11/pybind11.h>
-#include <unistd.h>
-
 #include <deque>
 #include <iterator>
 #include <string>
 #include <utility>
 
+// #include <pybind11/functional.h>
+#include <pybind11/numpy.h>
+#include <pybind11/pybind11.h>
+#include <unistd.h>
+
 #include "triton/developer_tools/server_wrapper.h"
-namespace tds = triton::developer_tools::server;
 
 #define STRINGIFY(x) #x
 #define MACRO_STRINGIFY(x) STRINGIFY(x)
 
+namespace tds = triton::developer_tools::server;
 namespace py = pybind11;
 using namespace pybind11::literals;
 
 
-#if 0
 template <typename T>
 class concurrent_queue {
   std::deque<T> _deque;
@@ -49,6 +48,8 @@ class concurrent_queue {
   }
 };
 
+
+#if 0
 
 std::unique_ptr<tds::TritonServer> server_;
 std::string model_name_;
@@ -153,20 +154,6 @@ sum_dict(const py::dict& dict)
   }
 }
 
-// BOOL,
-// UINT8,
-// UINT16,
-// UINT32,
-// UINT64,
-// INT8,
-// INT16,
-// INT32,
-// INT64,
-// FP16,
-// FP32,
-// FP64,
-// BYTES,
-// BF16
 
 #endif
 
@@ -369,18 +356,12 @@ PYBIND11_MODULE(triton, m)
   py::class_<TritonModelSession>(m, "Session")
       .def("predict", &TritonModelSession::predict)
       .def("predict_with_callback", &TritonModelSession::predict_with_callback);
+  // .def("predict_async", &TritonModelSession::predict_async,);
 
 
   py::class_<TritonModelExecutor>(m, "Executor")
       .def(py::init<const std::string&, const std::string&>())
       .def("create_session", &TritonModelExecutor::create_session);
-
-  // m.def("create_server", &ceeate_server, "Create a triton server");
-  // m.def("predict", &predict, "Run a prediction and wait for its result");
-  // m.def("predict_with_callback", &predict_with_callback, "Run a prediction");
-  // m.def("predict_async", &predict_with_callback, "Run a prediction");
-
-  // Predict where the callbacks are serialized on a different thread?
 
 #ifdef VERSION_INFO
   m.attr("__version__") = MACRO_STRINGIFY(VERSION_INFO);
